@@ -1,9 +1,9 @@
 # status-strip
 
-A Claude Code mod that adds one colored line under the prompt: the model in plain words, how full the context window is, and a bar for each usage limit your account actually reports.
+A Claude Code mod that adds one colored line under the prompt: the model in plain words and its effort level, how full the context window is, and a bar for each usage limit your account actually reports.
 
 ```
-Opus 5.5  ctx [####----------------] 23%  week [#-------------------] 7%
+Opus 5.5 · high  ctx [####----------------] 23%  week [#-------------------] 7%
 ```
 
 ## Install
@@ -26,7 +26,8 @@ In the desktop app: click + next to the prompt box, then Plugins, Add marketplac
 
 ## What it shows
 
-- **Model** — `claude-opus-5-5` reads as `Opus 5.5`; a 1M-context model gets `(1M)`.
+- **Model** — `claude-opus-5-5` reads as `Opus 5.5`; a 1M-context model gets `(1M)`. Switching with `/model` shows within a couple of seconds.
+- **Effort** — the level after the model (`low` to `max`), updated when you run `/effort` and from the level each request is sent at.
 - **ctx** — the context window's fill, updated after every turn.
 - **Limits** — one bar per window the account reports (`5h`, `week`, `spend`). A plan with no 5-hour limit shows no 5-hour bar.
 

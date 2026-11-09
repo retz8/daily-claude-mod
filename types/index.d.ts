@@ -1,6 +1,11 @@
 export type Limit = { kind: string; percent: number }
 
-export type Figures = { model: string; contextPercent: number | null; limits: Limit[] }
+export type Figures = {
+  model: string
+  effort?: string | null
+  contextPercent: number | null
+  limits: Limit[]
+}
 
 declare module 'claude-code' {
   interface PluginState {

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, Register, SessionContextUsage, SessionRateLimit, Timer } from 'claude-code'
 
 import type { Figures } from '../types'
 
@@ -34,26 +34,67 @@ const bar = (percent: number | null): string => {
 
 const shown = (percent: number | null): string => (percent === null ? '--%' : `${Math.round(percent)}%`)
 
+const savedEffort = async ($: EngineInterface): Promise<string | null> => {
+  const level = await $.settings.read({ key: 'effortLevel' })
+  return typeof level === 'string' ? level : null
+}
+
 const measure = async (
   $: EngineInterface,
   context: SessionContextUsage,
   rateLimits: SessionRateLimit[],
 ): Promise<void> => {
-  const next: Figures = {
-    model: friendlyModel(await $.session.model()),
+  const model = friendlyModel(await $.session.model())
+  const effort = await savedEffort($)
+  await update($, figures, previous => ({
+    model,
+    effort: previous?.effort ?? effort,
     contextPercent: context.percent ?? null,
     limits: rateLimits.map(limit => ({ kind: limit.kind, percent: limit.percentUsed })),
+  }))
+}
+
+// A model or effort switch (/model, /effort, the picker, a shortcut) raises no
+// event of its own, so both are read on a short timer and the line redrawn only
+// when one changed. A model request then carries the effort it was sent at.
+const SWITCH_CHECK_MS = 1500
+
+const refreshSwitches = async ($: EngineInterface, lastSaved: { effort: string | null }): Promise<void> => {
+  const current = await read($, figures)
+  if (current === null) return
+  const model = friendlyModel(await $.session.model())
+  const saved = await savedEffort($)
+  const effortMoved = saved !== lastSaved.effort
+  lastSaved.effort = saved
+  const effort = effortMoved ? saved : (current.effort ?? null)
+  if (model !== current.model || effort !== (current.effort ?? null)) {
+    await update($, figures, () => ({ ...current, model, effort }))
   }
-  await update($, figures, () => next)
 }
 
 export const register: Register = on => {
+  let switchCheck: Timer | undefined
+
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     $.ui.status(undefined)
     const { context, rateLimits } = await $.session.usage()
     await measure($, context, rateLimits)
+    const lastSaved = { effort: await savedEffort($) }
+    switchCheck?.cancel()
+    switchCheck = $.clock.every(SWITCH_CHECK_MS, () => void refreshSwitches($, lastSaved))
     return result
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    if (e.agentId === undefined && e.effort !== undefined) {
+      const effort = String(e.effort)
+      const current = await read($, figures)
+      if (current !== null && current.effort !== effort) {
+        await update($, figures, () => ({ ...current, effort }))
+      }
+    }
+    return yield* next(e)
   })
 
   on('session.measure', async ($, e, next) => {
@@ -73,6 +114,7 @@ export const register: Register = on => {
         {engineLine}
         <Text wrap="truncate-end">
           <Text color={MODEL_COLOR}>{current.model}</Text>
+          {current.effort ? <Text dimColor>{` · ${current.effort}`}</Text> : null}
           {'  ctx '}
           <Text color={CONTEXT_COLOR}>
             {bar(current.contextPercent)} {shown(current.contextPercent)}
