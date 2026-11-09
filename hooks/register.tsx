@@ -85,18 +85,53 @@ const refreshSwitches = async ($: EngineInterface, lastSaved: { effort: string |
   }
 }
 
-export const register: Register = on => {
-  let switchCheck: Timer | undefined
+// /clear moves the process to a new session, whose state starts empty, and no
+// session.start fires for it; a reload with nothing changed runs none either.
+// So whenever the line has no figures, they are read afresh.
+let switchCheck: Timer | undefined
+let isRefilling = false
+const lastSaved: { effort: string | null } = { effort: null }
 
+const refill = async ($: EngineInterface): Promise<void> => {
+  if (isRefilling) return
+  isRefilling = true
+  try {
+    const { context, rateLimits } = await $.session.usage()
+    await measure($, context, rateLimits)
+    lastSaved.effort = await savedEffort($, await $.session.model())
+  } finally {
+    isRefilling = false
+  }
+}
+
+const checkSwitches = async ($: EngineInterface): Promise<void> => {
+  if ((await read($, figures)) === null) await refill($)
+  else await refreshSwitches($, lastSaved)
+}
+
+const watch = ($: EngineInterface): void => {
+  if (switchCheck !== undefined) return
+  switchCheck = $.clock.every(SWITCH_CHECK_MS, () => void checkSwitches($))
+}
+
+const stopWatching = (): void => {
+  switchCheck?.cancel()
+  switchCheck = undefined
+}
+
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     $.ui.status(undefined)
-    const { context, rateLimits } = await $.session.usage()
-    await measure($, context, rateLimits)
-    const lastSaved = { effort: await savedEffort($, await $.session.model()) }
-    switchCheck?.cancel()
-    switchCheck = $.clock.every(SWITCH_CHECK_MS, () => void refreshSwitches($, lastSaved))
+    stopWatching()
+    await refill($)
+    watch($)
     return result
+  })
+
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') stopWatching()
+    return next(e)
   })
 
   on('turn.step', async function* ($, e, next) {
@@ -112,13 +147,18 @@ export const register: Register = on => {
 
   on('session.measure', async ($, e, next) => {
     await measure($, e.context, e.rateLimits)
+    watch($)
     return next(e)
   })
 
   on('ui.render', { component: 'PromptHint' }, async ($, e, next) => {
     const engineLine = await next(e)
+    watch($)
     const current = await read($, figures)
-    if (current === null) return engineLine
+    if (current === null) {
+      void refill($)
+      return engineLine
+    }
 
     const { Box, Text } = $.ui.resolve(e)
 

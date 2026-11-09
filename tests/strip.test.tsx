@@ -59,3 +59,21 @@ test('a model or effort switch mid-session shows without waiting for a turn', as
   expect((await ui.find({ type: 'Text', text: /Sonnet 5\.5/ }))?.text).toContain('Sonnet 5.5 · max')
   await ui.unmount()
 })
+
+test('after /clear or a reload, with no figures and no session.start, the line comes back by itself', async ($, on) => {
+  const clock = mock.clock(on)
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 1000000 }, rateLimits: [{ kind: 'seven_day', percentUsed: 26 }] } }))
+  on('settings.read', () => ({ value: { modelSettings: { 'claude-opus-5-5': { effortLevel: 'xhigh' } } } }))
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text dimColor>? for shortcuts</Text>
+  })
+
+  // No $.session.start: a /clear's new session, or a reload that runs none.
+  const ui = await $.ui.mount(HINT)
+  await clock.advance(1500)
+  const line = await ui.find({ type: 'Text', text: /Opus 5\.5/ })
+  expect(line?.text).toBe('Opus 5.5 · xhigh  ctx [--------------------] --%  week [#####---------------] 26%')
+  await ui.unmount()
+})
