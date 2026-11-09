@@ -1,0 +1,5 @@
+{
+  "name": "daily-claude-mod",
+  "owner": { "name": "retz8" },
+  "plugins": [{ "name": "status-strip", "source": "./" }]
+}

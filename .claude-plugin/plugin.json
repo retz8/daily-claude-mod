@@ -1,0 +1,1 @@
+{ "name": "status-strip", "version": "0.2.0", "description": "Model, context bar, and whatever usage limits the account reports, under the prompt", "author": { "name": "retz8" }, "types": "./types/index.d.ts" }
