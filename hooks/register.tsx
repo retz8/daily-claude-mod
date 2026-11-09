@@ -34,9 +34,20 @@ const bar = (percent: number | null): string => {
 
 const shown = (percent: number | null): string => (percent === null ? '--%' : `${Math.round(percent)}%`)
 
-const savedEffort = async ($: EngineInterface): Promise<string | null> => {
-  const level = await $.settings.read({ key: 'effortLevel' })
+const levelOf = (entry: unknown): string | null => {
+  if (typeof entry !== 'object' || entry === null) return null
+  const level = (entry as { effortLevel?: unknown }).effortLevel
   return typeof level === 'string' ? level : null
+}
+
+// /effort saves the level per model, under modelSettings.<model id>.effortLevel;
+// the top-level effortLevel is the fallback for a model with no entry of its own.
+const savedEffort = async ($: EngineInterface, modelId: string): Promise<string | null> => {
+  const settings = await $.settings.read()
+  const perModel = settings.modelSettings
+  const bareId = modelId.replace(/\[.*\]$/, '')
+  const entries = typeof perModel === 'object' && perModel !== null ? (perModel as Record<string, unknown>) : {}
+  return levelOf(entries[modelId]) ?? levelOf(entries[bareId]) ?? levelOf(settings)
 }
 
 const measure = async (
@@ -44,8 +55,9 @@ const measure = async (
   context: SessionContextUsage,
   rateLimits: SessionRateLimit[],
 ): Promise<void> => {
-  const model = friendlyModel(await $.session.model())
-  const effort = await savedEffort($)
+  const modelId = await $.session.model()
+  const model = friendlyModel(modelId)
+  const effort = await savedEffort($, modelId)
   await update($, figures, previous => ({
     model,
     effort: previous?.effort ?? effort,
@@ -62,8 +74,9 @@ const SWITCH_CHECK_MS = 1500
 const refreshSwitches = async ($: EngineInterface, lastSaved: { effort: string | null }): Promise<void> => {
   const current = await read($, figures)
   if (current === null) return
-  const model = friendlyModel(await $.session.model())
-  const saved = await savedEffort($)
+  const modelId = await $.session.model()
+  const model = friendlyModel(modelId)
+  const saved = await savedEffort($, modelId)
   const effortMoved = saved !== lastSaved.effort
   lastSaved.effort = saved
   const effort = effortMoved ? saved : (current.effort ?? null)
@@ -80,7 +93,7 @@ export const register: Register = on => {
     $.ui.status(undefined)
     const { context, rateLimits } = await $.session.usage()
     await measure($, context, rateLimits)
-    const lastSaved = { effort: await savedEffort($) }
+    const lastSaved = { effort: await savedEffort($, await $.session.model()) }
     switchCheck?.cancel()
     switchCheck = $.clock.every(SWITCH_CHECK_MS, () => void refreshSwitches($, lastSaved))
     return result
